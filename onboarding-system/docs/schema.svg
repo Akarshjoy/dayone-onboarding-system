@@ -1,0 +1,64 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1260" height="850" viewBox="0 0 1260 850">
+<rect width="1260" height="850" fill="#f4f7f5"/>
+<style>text{font-family:Arial,sans-serif;fill:#193b4e}.title{font-size:30px;font-weight:bold}.label{font-size:13px;fill:#658078}.head{font-size:17px;font-weight:bold;fill:white}.row{font-size:14px}</style>
+<text x="50" y="55" class="title">DayOne · employee identity and onboarding</text>
+<text x="50" y="84" class="label">Physical DynamoDB tables + embedded structures. Relationships enforced by application logic.</text>
+<path d="M335 195 L460 195" fill="none" stroke="#8aa396" stroke-width="2"/>
+<text x="376" y="183" class="label">1 : 1</text>
+<path d="M790 195 L915 195" fill="none" stroke="#8aa396" stroke-width="2"/>
+<text x="830" y="183" class="label">1 : 1</text>
+<path d="M790 400 L915 400" fill="none" stroke="#8aa396" stroke-width="2"/>
+<text x="816" y="388" class="label">embeds 4</text>
+<path d="M625 573 L625 635" fill="none" stroke="#8aa396" stroke-width="2"/>
+<text x="639" y="612" class="label">embeds up to 3</text>
+<path d="M335 475 L460 475" fill="none" stroke="#8aa396" stroke-width="2"/>
+<text x="351" y="460" class="label">0..1 : 0..1</text>
+<rect x="50" y="135" width="285" height="104" rx="9" fill="white" stroke="#ccdcd1"/>
+<path d="M59 135 H326 Q335 135 335 144 V177 H50 V144 Q50 135 59 135" fill="#214a59"/>
+<text x="66" y="162" class="head">IDENTITIES · DynamoDB</text>
+<text x="66" y="200" class="row">PK  email_hash</text>
+<text x="66" y="225" class="row">FK  employee_id</text>
+<rect x="460" y="135" width="330" height="379" rx="9" fill="white" stroke="#ccdcd1"/>
+<path d="M469 135 H781 Q790 135 790 144 V177 H460 V144 Q460 135 469 135" fill="#214a59"/>
+<text x="476" y="162" class="head">EMPLOYEES · DynamoDB</text>
+<text x="476" y="200" class="row">PK  employee_id (UUID)</text>
+<text x="476" y="225" class="row">name, email</text>
+<text x="476" y="250" class="row">department, role, manager</text>
+<text x="476" y="275" class="row">joining_date, employment_type</text>
+<text x="476" y="300" class="row">status, accepted_at</text>
+<text x="476" y="325" class="row">stages (map)</text>
+<text x="476" y="350" class="row">documents (map)</text>
+<text x="476" y="375" class="row">tokens (private map)</text>
+<text x="476" y="400" class="row">execution_arn</text>
+<text x="476" y="425" class="row">FK  asset_id</text>
+<text x="476" y="450" class="row">policy_version</text>
+<text x="476" y="475" class="row">ready_at, welcome_sent_at</text>
+<text x="476" y="500" class="row">created_at, updated_at</text>
+<rect x="915" y="135" width="295" height="154" rx="9" fill="white" stroke="#ccdcd1"/>
+<path d="M924 135 H1201 Q1210 135 1210 144 V177 H915 V144 Q915 135 924 135" fill="#214a59"/>
+<text x="931" y="162" class="head">COGNITO USER</text>
+<text x="931" y="200" class="row">username = employee_id</text>
+<text x="931" y="225" class="row">sub (Cognito subject)</text>
+<text x="931" y="250" class="row">custom:employee_id</text>
+<text x="931" y="275" class="row">email</text>
+<rect x="915" y="345" width="295" height="154" rx="9" fill="white" stroke="#ccdcd1"/>
+<path d="M924 345 H1201 Q1210 345 1210 354 V387 H915 V354 Q915 345 924 345" fill="#214a59"/>
+<text x="931" y="372" class="head">STAGE · embedded map</text>
+<text x="931" y="410" class="row">stage_name (map key)</text>
+<text x="931" y="435" class="row">status</text>
+<text x="931" y="460" class="row">completed_at</text>
+<text x="931" y="485" class="row">completed_by</text>
+<rect x="50" y="405" width="285" height="129" rx="9" fill="white" stroke="#ccdcd1"/>
+<path d="M59 405 H326 Q335 405 335 414 V447 H50 V414 Q50 405 59 405" fill="#214a59"/>
+<text x="66" y="432" class="head">ASSETS · DynamoDB</text>
+<text x="66" y="470" class="row">PK  asset_id</text>
+<text x="66" y="495" class="row">FK  employee_id (exclusive)</text>
+<text x="66" y="520" class="row">assigned_at</text>
+<rect x="460" y="635" width="465" height="154" rx="9" fill="white" stroke="#ccdcd1"/>
+<path d="M469 635 H916 Q925 635 925 644 V677 H460 V644 Q460 635 469 635" fill="#214a59"/>
+<text x="476" y="662" class="head">DOCUMENT · embedded map</text>
+<text x="476" y="700" class="row">kind (map key), status</text>
+<text x="476" y="725" class="row">S3 key + exact version_id</text>
+<text x="476" y="750" class="row">content_type, received_at</text>
+<text x="476" y="775" class="row">reviewed_by, reviewed_at</text>
+<text x="50" y="810" class="label">Documents stored separately in private, encrypted, versioned S3.</text></svg>

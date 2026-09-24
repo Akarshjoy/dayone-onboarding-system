@@ -1,0 +1,1478 @@
+{
+  "AWSTemplateFormatVersion": "2010-09-09",
+  "Transform": "AWS::Serverless-2016-10-31",
+  "Description": "DayOne onboarding starter",
+  "Parameters": {
+    "SenderEmail": {
+      "Type": "String"
+    },
+    "HREmail": {
+      "Type": "String"
+    },
+    "SESIdentityArn": {
+      "Type": "String",
+      "Description": "Verified SES identity ARN in the deployment region"
+    },
+    "ReminderSeconds": {
+      "Type": "Number",
+      "Default": 86400,
+      "MinValue": 60,
+      "MaxValue": 86400,
+      "Description": "Use 60 only for a demonstration; production 86400"
+    }
+  },
+  "Resources": {
+    "Employees": {
+      "Type": "AWS::DynamoDB::Table",
+      "Properties": {
+        "BillingMode": "PAY_PER_REQUEST",
+        "AttributeDefinitions": [
+          {
+            "AttributeName": "employee_id",
+            "AttributeType": "S"
+          }
+        ],
+        "KeySchema": [
+          {
+            "AttributeName": "employee_id",
+            "KeyType": "HASH"
+          }
+        ],
+        "SSESpecification": {
+          "SSEEnabled": true
+        },
+        "PointInTimeRecoverySpecification": {
+          "PointInTimeRecoveryEnabled": true
+        }
+      },
+      "DeletionPolicy": "Retain",
+      "UpdateReplacePolicy": "Retain"
+    },
+    "Identities": {
+      "Type": "AWS::DynamoDB::Table",
+      "Properties": {
+        "BillingMode": "PAY_PER_REQUEST",
+        "AttributeDefinitions": [
+          {
+            "AttributeName": "email_hash",
+            "AttributeType": "S"
+          }
+        ],
+        "KeySchema": [
+          {
+            "AttributeName": "email_hash",
+            "KeyType": "HASH"
+          }
+        ],
+        "SSESpecification": {
+          "SSEEnabled": true
+        },
+        "PointInTimeRecoverySpecification": {
+          "PointInTimeRecoveryEnabled": true
+        }
+      },
+      "DeletionPolicy": "Retain",
+      "UpdateReplacePolicy": "Retain"
+    },
+    "Assets": {
+      "Type": "AWS::DynamoDB::Table",
+      "Properties": {
+        "BillingMode": "PAY_PER_REQUEST",
+        "AttributeDefinitions": [
+          {
+            "AttributeName": "asset_id",
+            "AttributeType": "S"
+          }
+        ],
+        "KeySchema": [
+          {
+            "AttributeName": "asset_id",
+            "KeyType": "HASH"
+          }
+        ],
+        "SSESpecification": {
+          "SSEEnabled": true
+        },
+        "PointInTimeRecoverySpecification": {
+          "PointInTimeRecoveryEnabled": true
+        }
+      },
+      "DeletionPolicy": "Retain",
+      "UpdateReplacePolicy": "Retain"
+    },
+    "WebBucket": {
+      "Type": "AWS::S3::Bucket",
+      "Properties": {
+        "PublicAccessBlockConfiguration": {
+          "BlockPublicAcls": true,
+          "BlockPublicPolicy": true,
+          "IgnorePublicAcls": true,
+          "RestrictPublicBuckets": true
+        },
+        "BucketEncryption": {
+          "ServerSideEncryptionConfiguration": [
+            {
+              "ServerSideEncryptionByDefault": {
+                "SSEAlgorithm": "AES256"
+              }
+            }
+          ]
+        }
+      },
+      "DeletionPolicy": "Retain",
+      "UpdateReplacePolicy": "Retain"
+    },
+    "OAC": {
+      "Type": "AWS::CloudFront::OriginAccessControl",
+      "Properties": {
+        "OriginAccessControlConfig": {
+          "Name": {
+            "Fn::Sub": "${AWS::StackName}-oac"
+          },
+          "OriginAccessControlOriginType": "s3",
+          "SigningBehavior": "always",
+          "SigningProtocol": "sigv4"
+        }
+      }
+    },
+    "Distribution": {
+      "Type": "AWS::CloudFront::Distribution",
+      "Properties": {
+        "DistributionConfig": {
+          "Enabled": true,
+          "DefaultRootObject": "index.html",
+          "HttpVersion": "http2",
+          "PriceClass": "PriceClass_100",
+          "Origins": [
+            {
+              "Id": "web",
+              "DomainName": {
+                "Fn::GetAtt": [
+                  "WebBucket",
+                  "RegionalDomainName"
+                ]
+              },
+              "OriginAccessControlId": {
+                "Ref": "OAC"
+              },
+              "S3OriginConfig": {
+                "OriginAccessIdentity": ""
+              }
+            }
+          ],
+          "DefaultCacheBehavior": {
+            "TargetOriginId": "web",
+            "ViewerProtocolPolicy": "redirect-to-https",
+            "AllowedMethods": [
+              "GET",
+              "HEAD"
+            ],
+            "CachedMethods": [
+              "GET",
+              "HEAD"
+            ],
+            "ForwardedValues": {
+              "QueryString": false
+            },
+            "MinTTL": 0,
+            "DefaultTTL": 60,
+            "MaxTTL": 300,
+            "ResponseHeadersPolicyId": "67f7725c-6f97-4210-82d7-5512b31e9d03"
+          },
+          "ViewerCertificate": {
+            "CloudFrontDefaultCertificate": true
+          }
+        }
+      }
+    },
+    "WebPolicy": {
+      "Type": "AWS::S3::BucketPolicy",
+      "Properties": {
+        "Bucket": {
+          "Ref": "WebBucket"
+        },
+        "PolicyDocument": {
+          "Version": "2012-10-17",
+          "Statement": [
+            {
+              "Effect": "Allow",
+              "Principal": {
+                "Service": "cloudfront.amazonaws.com"
+              },
+              "Action": "s3:GetObject",
+              "Resource": {
+                "Fn::Sub": "${WebBucket.Arn}/*"
+              },
+              "Condition": {
+                "StringEquals": {
+                  "AWS:SourceArn": {
+                    "Fn::Sub": "arn:${AWS::Partition}:cloudfront::${AWS::AccountId}:distribution/${Distribution}"
+                  }
+                }
+              }
+            },
+            {
+              "Effect": "Deny",
+              "Principal": "*",
+              "Action": "s3:*",
+              "Resource": [
+                {
+                  "Fn::GetAtt": [
+                    "WebBucket",
+                    "Arn"
+                  ]
+                },
+                {
+                  "Fn::Sub": "${WebBucket.Arn}/*"
+                }
+              ],
+              "Condition": {
+                "Bool": {
+                  "aws:SecureTransport": "false"
+                }
+              }
+            }
+          ]
+        }
+      }
+    },
+    "Documents": {
+      "Type": "AWS::S3::Bucket",
+      "Properties": {
+        "BucketEncryption": {
+          "ServerSideEncryptionConfiguration": [
+            {
+              "ServerSideEncryptionByDefault": {
+                "SSEAlgorithm": "AES256"
+              }
+            }
+          ]
+        },
+        "PublicAccessBlockConfiguration": {
+          "BlockPublicAcls": true,
+          "BlockPublicPolicy": true,
+          "IgnorePublicAcls": true,
+          "RestrictPublicBuckets": true
+        },
+        "VersioningConfiguration": {
+          "Status": "Enabled"
+        },
+        "NotificationConfiguration": {
+          "EventBridgeConfiguration": {
+            "EventBridgeEnabled": true
+          }
+        },
+        "CorsConfiguration": {
+          "CorsRules": [
+            {
+              "AllowedHeaders": [
+                "*"
+              ],
+              "AllowedMethods": [
+                "POST"
+              ],
+              "AllowedOrigins": [
+                {
+                  "Fn::Sub": "https://${Distribution.DomainName}"
+                }
+              ],
+              "MaxAge": 300
+            }
+          ]
+        },
+        "LifecycleConfiguration": {
+          "Rules": [
+            {
+              "Id": "abort-incomplete",
+              "Status": "Enabled",
+              "AbortIncompleteMultipartUpload": {
+                "DaysAfterInitiation": 1
+              }
+            }
+          ]
+        }
+      },
+      "DeletionPolicy": "Retain",
+      "UpdateReplacePolicy": "Retain"
+    },
+    "DocumentPolicy": {
+      "Type": "AWS::S3::BucketPolicy",
+      "Properties": {
+        "Bucket": {
+          "Ref": "Documents"
+        },
+        "PolicyDocument": {
+          "Version": "2012-10-17",
+          "Statement": [
+            {
+              "Effect": "Deny",
+              "Principal": "*",
+              "Action": "s3:*",
+              "Resource": [
+                {
+                  "Fn::GetAtt": [
+                    "Documents",
+                    "Arn"
+                  ]
+                },
+                {
+                  "Fn::Sub": "${Documents.Arn}/*"
+                }
+              ],
+              "Condition": {
+                "Bool": {
+                  "aws:SecureTransport": "false"
+                }
+              }
+            }
+          ]
+        }
+      }
+    },
+    "Pool": {
+      "Type": "AWS::Cognito::UserPool",
+      "Properties": {
+        "UserPoolName": {
+          "Fn::Sub": "${AWS::StackName}-users"
+        },
+        "AliasAttributes": [
+          "email"
+        ],
+        "UsernameConfiguration": {
+          "CaseSensitive": false
+        },
+        "AdminCreateUserConfig": {
+          "AllowAdminCreateUserOnly": true,
+          "InviteMessageTemplate": {
+            "EmailSubject": "Your onboarding account",
+            "EmailMessage": {
+              "Fn::Sub": "Welcome! Your username is {username} and temporary password is {####}. Sign in at https://${Distribution.DomainName} and choose a new password."
+            }
+          }
+        },
+        "Policies": {
+          "PasswordPolicy": {
+            "MinimumLength": 12,
+            "RequireLowercase": true,
+            "RequireUppercase": true,
+            "RequireNumbers": true,
+            "RequireSymbols": true,
+            "TemporaryPasswordValidityDays": 7
+          }
+        },
+        "EmailConfiguration": {
+          "EmailSendingAccount": "DEVELOPER",
+          "SourceArn": {
+            "Ref": "SESIdentityArn"
+          },
+          "From": {
+            "Ref": "SenderEmail"
+          }
+        },
+        "Schema": [
+          {
+            "Name": "employee_id",
+            "AttributeDataType": "String",
+            "Mutable": false,
+            "StringAttributeConstraints": {
+              "MinLength": "36",
+              "MaxLength": "36"
+            }
+          }
+        ],
+        "UserPoolTier": "ESSENTIALS"
+      },
+      "DeletionPolicy": "Retain",
+      "UpdateReplacePolicy": "Retain"
+    },
+    "Client": {
+      "Type": "AWS::Cognito::UserPoolClient",
+      "Properties": {
+        "UserPoolId": {
+          "Ref": "Pool"
+        },
+        "GenerateSecret": false,
+        "ExplicitAuthFlows": [
+          "ALLOW_USER_PASSWORD_AUTH",
+          "ALLOW_REFRESH_TOKEN_AUTH"
+        ],
+        "PreventUserExistenceErrors": "ENABLED",
+        "AccessTokenValidity": 1,
+        "IdTokenValidity": 1,
+        "RefreshTokenValidity": 1,
+        "ReadAttributes": [
+          "email",
+          "custom:employee_id"
+        ],
+        "WriteAttributes": [
+          "email"
+        ]
+      }
+    },
+    "HRAdminGroup": {
+      "Type": "AWS::Cognito::UserPoolGroup",
+      "Properties": {
+        "UserPoolId": {
+          "Ref": "Pool"
+        },
+        "GroupName": "HRAdmin"
+      }
+    },
+    "EmployeesGroup": {
+      "Type": "AWS::Cognito::UserPoolGroup",
+      "Properties": {
+        "UserPoolId": {
+          "Ref": "Pool"
+        },
+        "GroupName": "Employees"
+      }
+    },
+    "Topic": {
+      "Type": "AWS::SNS::Topic",
+      "Properties": {
+        "Subscription": [
+          {
+            "Protocol": "email",
+            "Endpoint": {
+              "Ref": "HREmail"
+            }
+          }
+        ]
+      }
+    },
+    "Api": {
+      "Type": "AWS::Serverless::Api",
+      "Properties": {
+        "StageName": "prod",
+        "EndpointConfiguration": {
+          "Type": "REGIONAL"
+        },
+        "Cors": {
+          "AllowOrigin": {
+            "Fn::Sub": "'https://${Distribution.DomainName}'"
+          },
+          "AllowHeaders": "'Content-Type,Authorization'",
+          "AllowMethods": "'GET,POST,OPTIONS'"
+        },
+        "Auth": {
+          "DefaultAuthorizer": "Cognito",
+          "AddDefaultAuthorizerToCorsPreflight": false,
+          "Authorizers": {
+            "Cognito": {
+              "UserPoolArn": {
+                "Fn::GetAtt": [
+                  "Pool",
+                  "Arn"
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
+    "ApiFunction": {
+      "Type": "AWS::Serverless::Function",
+      "Properties": {
+        "CodeUri": "backend/",
+        "Runtime": "python3.14",
+        "Handler": "app.api",
+        "Timeout": 30,
+        "MemorySize": 256,
+        "Environment": {
+          "Variables": {
+            "EMPLOYEES": {
+              "Ref": "Employees"
+            },
+            "IDENTITIES": {
+              "Ref": "Identities"
+            },
+            "ASSETS": {
+              "Ref": "Assets"
+            },
+            "POOL": {
+              "Ref": "Pool"
+            },
+            "DOCUMENT_BUCKET": {
+              "Ref": "Documents"
+            },
+            "TOPIC": {
+              "Ref": "Topic"
+            },
+            "SENDER": {
+              "Ref": "SenderEmail"
+            },
+            "HR_EMAIL": {
+              "Ref": "HREmail"
+            },
+            "PORTAL_URL": {
+              "Fn::Sub": "https://${Distribution.DomainName}"
+            },
+            "WORKFLOW": {
+              "Ref": "Workflow"
+            }
+          }
+        },
+        "Policies": [
+          {
+            "Version": "2012-10-17",
+            "Statement": [
+              {
+                "Effect": "Allow",
+                "Action": [
+                  "dynamodb:GetItem",
+                  "dynamodb:PutItem",
+                  "dynamodb:UpdateItem",
+                  "dynamodb:Scan"
+                ],
+                "Resource": [
+                  {
+                    "Fn::GetAtt": [
+                      "Employees",
+                      "Arn"
+                    ]
+                  },
+                  {
+                    "Fn::GetAtt": [
+                      "Identities",
+                      "Arn"
+                    ]
+                  },
+                  {
+                    "Fn::GetAtt": [
+                      "Assets",
+                      "Arn"
+                    ]
+                  }
+                ]
+              },
+              {
+                "Effect": "Allow",
+                "Action": [
+                  "states:SendTaskSuccess"
+                ],
+                "Resource": "*"
+              },
+              {
+                "Effect": "Allow",
+                "Action": [
+                  "cognito-idp:AdminCreateUser",
+                  "cognito-idp:AdminAddUserToGroup"
+                ],
+                "Resource": {
+                  "Fn::GetAtt": [
+                    "Pool",
+                    "Arn"
+                  ]
+                }
+              },
+              {
+                "Effect": "Allow",
+                "Action": [
+                  "s3:PutObject",
+                  "s3:GetObjectVersion"
+                ],
+                "Resource": {
+                  "Fn::Sub": "${Documents.Arn}/*"
+                }
+              },
+              {
+                "Effect": "Allow",
+                "Action": [
+                  "sns:Publish"
+                ],
+                "Resource": {
+                  "Ref": "Topic"
+                }
+              },
+              {
+                "Effect": "Allow",
+                "Action": [
+                  "states:StartExecution"
+                ],
+                "Resource": {
+                  "Ref": "Workflow"
+                }
+              }
+            ]
+          }
+        ],
+        "Events": {
+          "Proxy": {
+            "Type": "Api",
+            "Properties": {
+              "RestApiId": {
+                "Ref": "Api"
+              },
+              "Path": "/{proxy+}",
+              "Method": "ANY"
+            }
+          }
+        }
+      }
+    },
+    "ApiFunctionLogs": {
+      "Type": "AWS::Logs::LogGroup",
+      "Properties": {
+        "LogGroupName": {
+          "Fn::Sub": "/aws/lambda/${ApiFunction}"
+        },
+        "RetentionInDays": 14
+      }
+    },
+    "Validator": {
+      "Type": "AWS::Serverless::Function",
+      "Properties": {
+        "CodeUri": "backend/",
+        "Runtime": "python3.14",
+        "Handler": "app.validate_upload",
+        "Timeout": 30,
+        "MemorySize": 256,
+        "Environment": {
+          "Variables": {
+            "EMPLOYEES": {
+              "Ref": "Employees"
+            },
+            "IDENTITIES": {
+              "Ref": "Identities"
+            },
+            "ASSETS": {
+              "Ref": "Assets"
+            },
+            "POOL": {
+              "Ref": "Pool"
+            },
+            "DOCUMENT_BUCKET": {
+              "Ref": "Documents"
+            },
+            "TOPIC": {
+              "Ref": "Topic"
+            },
+            "SENDER": {
+              "Ref": "SenderEmail"
+            },
+            "HR_EMAIL": {
+              "Ref": "HREmail"
+            },
+            "PORTAL_URL": {
+              "Fn::Sub": "https://${Distribution.DomainName}"
+            }
+          }
+        },
+        "Policies": [
+          {
+            "Version": "2012-10-17",
+            "Statement": [
+              {
+                "Effect": "Allow",
+                "Action": [
+                  "dynamodb:GetItem",
+                  "dynamodb:PutItem",
+                  "dynamodb:UpdateItem",
+                  "dynamodb:Scan"
+                ],
+                "Resource": [
+                  {
+                    "Fn::GetAtt": [
+                      "Employees",
+                      "Arn"
+                    ]
+                  },
+                  {
+                    "Fn::GetAtt": [
+                      "Identities",
+                      "Arn"
+                    ]
+                  },
+                  {
+                    "Fn::GetAtt": [
+                      "Assets",
+                      "Arn"
+                    ]
+                  }
+                ]
+              },
+              {
+                "Effect": "Allow",
+                "Action": [
+                  "s3:GetObjectVersion",
+                  "s3:DeleteObjectVersion"
+                ],
+                "Resource": {
+                  "Fn::Sub": "${Documents.Arn}/*"
+                }
+              }
+            ]
+          }
+        ],
+        "Events": {
+          "Upload": {
+            "Type": "EventBridgeRule",
+            "Properties": {
+              "Pattern": {
+                "source": [
+                  "aws.s3"
+                ],
+                "detail-type": [
+                  "Object Created"
+                ],
+                "detail": {
+                  "bucket": {
+                    "name": [
+                      {
+                        "Ref": "Documents"
+                      }
+                    ]
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "ValidatorLogs": {
+      "Type": "AWS::Logs::LogGroup",
+      "Properties": {
+        "LogGroupName": {
+          "Fn::Sub": "/aws/lambda/${Validator}"
+        },
+        "RetentionInDays": 14
+      }
+    },
+    "StageFunction": {
+      "Type": "AWS::Serverless::Function",
+      "Properties": {
+        "CodeUri": "backend/",
+        "Runtime": "python3.14",
+        "Handler": "app.stage",
+        "Timeout": 30,
+        "MemorySize": 256,
+        "Environment": {
+          "Variables": {
+            "EMPLOYEES": {
+              "Ref": "Employees"
+            },
+            "IDENTITIES": {
+              "Ref": "Identities"
+            },
+            "ASSETS": {
+              "Ref": "Assets"
+            },
+            "POOL": {
+              "Ref": "Pool"
+            },
+            "DOCUMENT_BUCKET": {
+              "Ref": "Documents"
+            },
+            "TOPIC": {
+              "Ref": "Topic"
+            },
+            "SENDER": {
+              "Ref": "SenderEmail"
+            },
+            "HR_EMAIL": {
+              "Ref": "HREmail"
+            },
+            "PORTAL_URL": {
+              "Fn::Sub": "https://${Distribution.DomainName}"
+            }
+          }
+        },
+        "Policies": [
+          {
+            "Version": "2012-10-17",
+            "Statement": [
+              {
+                "Effect": "Allow",
+                "Action": [
+                  "dynamodb:GetItem",
+                  "dynamodb:PutItem",
+                  "dynamodb:UpdateItem",
+                  "dynamodb:Scan"
+                ],
+                "Resource": [
+                  {
+                    "Fn::GetAtt": [
+                      "Employees",
+                      "Arn"
+                    ]
+                  },
+                  {
+                    "Fn::GetAtt": [
+                      "Identities",
+                      "Arn"
+                    ]
+                  },
+                  {
+                    "Fn::GetAtt": [
+                      "Assets",
+                      "Arn"
+                    ]
+                  }
+                ]
+              },
+              {
+                "Effect": "Allow",
+                "Action": [
+                  "ses:SendEmail"
+                ],
+                "Resource": [
+                  {
+                    "Ref": "SESIdentityArn"
+                  }
+                ]
+              },
+              {
+                "Effect": "Allow",
+                "Action": [
+                  "states:SendTaskSuccess"
+                ],
+                "Resource": "*"
+              }
+            ]
+          }
+        ]
+      }
+    },
+    "StageFunctionLogs": {
+      "Type": "AWS::Logs::LogGroup",
+      "Properties": {
+        "LogGroupName": {
+          "Fn::Sub": "/aws/lambda/${StageFunction}"
+        },
+        "RetentionInDays": 14
+      }
+    },
+    "ReadyFunction": {
+      "Type": "AWS::Serverless::Function",
+      "Properties": {
+        "CodeUri": "backend/",
+        "Runtime": "python3.14",
+        "Handler": "app.ready",
+        "Timeout": 30,
+        "MemorySize": 256,
+        "Environment": {
+          "Variables": {
+            "EMPLOYEES": {
+              "Ref": "Employees"
+            },
+            "IDENTITIES": {
+              "Ref": "Identities"
+            },
+            "ASSETS": {
+              "Ref": "Assets"
+            },
+            "POOL": {
+              "Ref": "Pool"
+            },
+            "DOCUMENT_BUCKET": {
+              "Ref": "Documents"
+            },
+            "TOPIC": {
+              "Ref": "Topic"
+            },
+            "SENDER": {
+              "Ref": "SenderEmail"
+            },
+            "HR_EMAIL": {
+              "Ref": "HREmail"
+            },
+            "PORTAL_URL": {
+              "Fn::Sub": "https://${Distribution.DomainName}"
+            }
+          }
+        },
+        "Policies": [
+          {
+            "Version": "2012-10-17",
+            "Statement": [
+              {
+                "Effect": "Allow",
+                "Action": [
+                  "dynamodb:GetItem",
+                  "dynamodb:PutItem",
+                  "dynamodb:UpdateItem",
+                  "dynamodb:Scan"
+                ],
+                "Resource": [
+                  {
+                    "Fn::GetAtt": [
+                      "Employees",
+                      "Arn"
+                    ]
+                  },
+                  {
+                    "Fn::GetAtt": [
+                      "Identities",
+                      "Arn"
+                    ]
+                  },
+                  {
+                    "Fn::GetAtt": [
+                      "Assets",
+                      "Arn"
+                    ]
+                  }
+                ]
+              },
+              {
+                "Effect": "Allow",
+                "Action": [
+                  "ses:SendEmail"
+                ],
+                "Resource": [
+                  {
+                    "Ref": "SESIdentityArn"
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      }
+    },
+    "ReadyFunctionLogs": {
+      "Type": "AWS::Logs::LogGroup",
+      "Properties": {
+        "LogGroupName": {
+          "Fn::Sub": "/aws/lambda/${ReadyFunction}"
+        },
+        "RetentionInDays": 14
+      }
+    },
+    "WelcomeFunction": {
+      "Type": "AWS::Serverless::Function",
+      "Properties": {
+        "CodeUri": "backend/",
+        "Runtime": "python3.14",
+        "Handler": "app.welcome",
+        "Timeout": 30,
+        "MemorySize": 256,
+        "Environment": {
+          "Variables": {
+            "EMPLOYEES": {
+              "Ref": "Employees"
+            },
+            "IDENTITIES": {
+              "Ref": "Identities"
+            },
+            "ASSETS": {
+              "Ref": "Assets"
+            },
+            "POOL": {
+              "Ref": "Pool"
+            },
+            "DOCUMENT_BUCKET": {
+              "Ref": "Documents"
+            },
+            "TOPIC": {
+              "Ref": "Topic"
+            },
+            "SENDER": {
+              "Ref": "SenderEmail"
+            },
+            "HR_EMAIL": {
+              "Ref": "HREmail"
+            },
+            "PORTAL_URL": {
+              "Fn::Sub": "https://${Distribution.DomainName}"
+            }
+          }
+        },
+        "Policies": [
+          {
+            "Version": "2012-10-17",
+            "Statement": [
+              {
+                "Effect": "Allow",
+                "Action": [
+                  "dynamodb:GetItem",
+                  "dynamodb:PutItem",
+                  "dynamodb:UpdateItem",
+                  "dynamodb:Scan"
+                ],
+                "Resource": [
+                  {
+                    "Fn::GetAtt": [
+                      "Employees",
+                      "Arn"
+                    ]
+                  },
+                  {
+                    "Fn::GetAtt": [
+                      "Identities",
+                      "Arn"
+                    ]
+                  },
+                  {
+                    "Fn::GetAtt": [
+                      "Assets",
+                      "Arn"
+                    ]
+                  }
+                ]
+              },
+              {
+                "Effect": "Allow",
+                "Action": [
+                  "ses:SendEmail"
+                ],
+                "Resource": [
+                  {
+                    "Ref": "SESIdentityArn"
+                  }
+                ]
+              }
+            ]
+          }
+        ],
+        "Events": {
+          "Daily": {
+            "Type": "Schedule",
+            "Properties": {
+              "Schedule": "cron(30 3 * * ? *)",
+              "Description": "Day 1 welcome at 09:00 India time"
+            }
+          }
+        }
+      }
+    },
+    "WelcomeFunctionLogs": {
+      "Type": "AWS::Logs::LogGroup",
+      "Properties": {
+        "LogGroupName": {
+          "Fn::Sub": "/aws/lambda/${WelcomeFunction}"
+        },
+        "RetentionInDays": 14
+      }
+    },
+    "Workflow": {
+      "Type": "AWS::Serverless::StateMachine",
+      "Properties": {
+        "Type": "STANDARD",
+        "Name": {
+          "Fn::Sub": "${AWS::StackName}-workflow"
+        },
+        "Definition": {
+          "Comment": "Human completion callbacks; 24-hour task timeout loops send reminders.",
+          "StartAt": "Prepare",
+          "TimeoutSeconds": 7776000,
+          "States": {
+            "Prepare": {
+              "Type": "Pass",
+              "Parameters": {
+                "employee_id.$": "$.employee_id",
+                "reminder_seconds.$": {
+                  "Fn::Sub": "States.StringToJson('${ReminderSeconds}')"
+                }
+              },
+              "Next": "documents"
+            },
+            "documents": {
+              "Type": "Task",
+              "Resource": "arn:aws:states:::lambda:invoke.waitForTaskToken",
+              "Parameters": {
+                "FunctionName": {
+                  "Fn::GetAtt": [
+                    "StageFunction",
+                    "Arn"
+                  ]
+                },
+                "Payload": {
+                  "employee_id.$": "$.employee_id",
+                  "stage": "documents",
+                  "token.$": "$$.Task.Token"
+                }
+              },
+              "TimeoutSecondsPath": "$.reminder_seconds",
+              "ResultPath": null,
+              "Retry": [
+                {
+                  "ErrorEquals": [
+                    "Lambda.ServiceException",
+                    "Lambda.AWSLambdaException",
+                    "Lambda.SdkClientException",
+                    "Lambda.TooManyRequestsException"
+                  ],
+                  "IntervalSeconds": 2,
+                  "MaxAttempts": 3,
+                  "BackoffRate": 2
+                }
+              ],
+              "Catch": [
+                {
+                  "ErrorEquals": [
+                    "States.Timeout"
+                  ],
+                  "ResultPath": null,
+                  "Next": "documents"
+                },
+                {
+                  "ErrorEquals": [
+                    "States.ALL"
+                  ],
+                  "ResultPath": "$.error",
+                  "Next": "NotifyFailure"
+                }
+              ],
+              "Next": "it"
+            },
+            "it": {
+              "Type": "Task",
+              "Resource": "arn:aws:states:::lambda:invoke.waitForTaskToken",
+              "Parameters": {
+                "FunctionName": {
+                  "Fn::GetAtt": [
+                    "StageFunction",
+                    "Arn"
+                  ]
+                },
+                "Payload": {
+                  "employee_id.$": "$.employee_id",
+                  "stage": "it",
+                  "token.$": "$$.Task.Token"
+                }
+              },
+              "TimeoutSecondsPath": "$.reminder_seconds",
+              "ResultPath": null,
+              "Retry": [
+                {
+                  "ErrorEquals": [
+                    "Lambda.ServiceException",
+                    "Lambda.AWSLambdaException",
+                    "Lambda.SdkClientException",
+                    "Lambda.TooManyRequestsException"
+                  ],
+                  "IntervalSeconds": 2,
+                  "MaxAttempts": 3,
+                  "BackoffRate": 2
+                }
+              ],
+              "Catch": [
+                {
+                  "ErrorEquals": [
+                    "States.Timeout"
+                  ],
+                  "ResultPath": null,
+                  "Next": "it"
+                },
+                {
+                  "ErrorEquals": [
+                    "States.ALL"
+                  ],
+                  "ResultPath": "$.error",
+                  "Next": "NotifyFailure"
+                }
+              ],
+              "Next": "policy"
+            },
+            "policy": {
+              "Type": "Task",
+              "Resource": "arn:aws:states:::lambda:invoke.waitForTaskToken",
+              "Parameters": {
+                "FunctionName": {
+                  "Fn::GetAtt": [
+                    "StageFunction",
+                    "Arn"
+                  ]
+                },
+                "Payload": {
+                  "employee_id.$": "$.employee_id",
+                  "stage": "policy",
+                  "token.$": "$$.Task.Token"
+                }
+              },
+              "TimeoutSecondsPath": "$.reminder_seconds",
+              "ResultPath": null,
+              "Retry": [
+                {
+                  "ErrorEquals": [
+                    "Lambda.ServiceException",
+                    "Lambda.AWSLambdaException",
+                    "Lambda.SdkClientException",
+                    "Lambda.TooManyRequestsException"
+                  ],
+                  "IntervalSeconds": 2,
+                  "MaxAttempts": 3,
+                  "BackoffRate": 2
+                }
+              ],
+              "Catch": [
+                {
+                  "ErrorEquals": [
+                    "States.Timeout"
+                  ],
+                  "ResultPath": null,
+                  "Next": "policy"
+                },
+                {
+                  "ErrorEquals": [
+                    "States.ALL"
+                  ],
+                  "ResultPath": "$.error",
+                  "Next": "NotifyFailure"
+                }
+              ],
+              "Next": "manager"
+            },
+            "manager": {
+              "Type": "Task",
+              "Resource": "arn:aws:states:::lambda:invoke.waitForTaskToken",
+              "Parameters": {
+                "FunctionName": {
+                  "Fn::GetAtt": [
+                    "StageFunction",
+                    "Arn"
+                  ]
+                },
+                "Payload": {
+                  "employee_id.$": "$.employee_id",
+                  "stage": "manager",
+                  "token.$": "$$.Task.Token"
+                }
+              },
+              "TimeoutSecondsPath": "$.reminder_seconds",
+              "ResultPath": null,
+              "Retry": [
+                {
+                  "ErrorEquals": [
+                    "Lambda.ServiceException",
+                    "Lambda.AWSLambdaException",
+                    "Lambda.SdkClientException",
+                    "Lambda.TooManyRequestsException"
+                  ],
+                  "IntervalSeconds": 2,
+                  "MaxAttempts": 3,
+                  "BackoffRate": 2
+                }
+              ],
+              "Catch": [
+                {
+                  "ErrorEquals": [
+                    "States.Timeout"
+                  ],
+                  "ResultPath": null,
+                  "Next": "manager"
+                },
+                {
+                  "ErrorEquals": [
+                    "States.ALL"
+                  ],
+                  "ResultPath": "$.error",
+                  "Next": "NotifyFailure"
+                }
+              ],
+              "Next": "Ready"
+            },
+            "Ready": {
+              "Type": "Task",
+              "Resource": {
+                "Fn::GetAtt": [
+                  "ReadyFunction",
+                  "Arn"
+                ]
+              },
+              "Retry": [
+                {
+                  "ErrorEquals": [
+                    "Lambda.ServiceException",
+                    "Lambda.AWSLambdaException",
+                    "Lambda.SdkClientException",
+                    "Lambda.TooManyRequestsException"
+                  ],
+                  "IntervalSeconds": 2,
+                  "MaxAttempts": 3,
+                  "BackoffRate": 2
+                }
+              ],
+              "Catch": [
+                {
+                  "ErrorEquals": [
+                    "States.ALL"
+                  ],
+                  "ResultPath": "$.error",
+                  "Next": "NotifyFailure"
+                }
+              ],
+              "End": true
+            },
+            "NotifyFailure": {
+              "Type": "Task",
+              "Resource": "arn:aws:states:::sns:publish",
+              "Parameters": {
+                "TopicArn": {
+                  "Ref": "Topic"
+                },
+                "Subject": "Onboarding workflow needs attention",
+                "Message.$": "$.employee_id"
+              },
+              "Next": "Failed"
+            },
+            "Failed": {
+              "Type": "Fail",
+              "Error": "OnboardingTaskFailed"
+            }
+          }
+        },
+        "Policies": [
+          {
+            "Version": "2012-10-17",
+            "Statement": [
+              {
+                "Effect": "Allow",
+                "Action": [
+                  "lambda:InvokeFunction"
+                ],
+                "Resource": [
+                  {
+                    "Fn::GetAtt": [
+                      "StageFunction",
+                      "Arn"
+                    ]
+                  },
+                  {
+                    "Fn::GetAtt": [
+                      "ReadyFunction",
+                      "Arn"
+                    ]
+                  }
+                ]
+              },
+              {
+                "Effect": "Allow",
+                "Action": [
+                  "sns:Publish"
+                ],
+                "Resource": {
+                  "Ref": "Topic"
+                }
+              }
+            ]
+          }
+        ]
+      }
+    },
+    "ExecutionFailures": {
+      "Type": "AWS::Events::Rule",
+      "Properties": {
+        "EventPattern": {
+          "source": [
+            "aws.states"
+          ],
+          "detail-type": [
+            "Step Functions Execution Status Change"
+          ],
+          "detail": {
+            "stateMachineArn": [
+              {
+                "Ref": "Workflow"
+              }
+            ],
+            "status": [
+              "FAILED",
+              "TIMED_OUT",
+              "ABORTED"
+            ]
+          }
+        },
+        "Targets": [
+          {
+            "Arn": {
+              "Ref": "Topic"
+            },
+            "Id": "HR",
+            "InputTransformer": {
+              "InputPathsMap": {
+                "execution": "$.detail.executionArn",
+                "status": "$.detail.status"
+              },
+              "InputTemplate": "\"Workflow <execution> is <status>. Review in Step Functions.\""
+            }
+          }
+        ]
+      }
+    },
+    "TopicPolicy": {
+      "Type": "AWS::SNS::TopicPolicy",
+      "Properties": {
+        "Topics": [
+          {
+            "Ref": "Topic"
+          }
+        ],
+        "PolicyDocument": {
+          "Version": "2012-10-17",
+          "Statement": [
+            {
+              "Effect": "Allow",
+              "Principal": {
+                "Service": "events.amazonaws.com"
+              },
+              "Action": "sns:Publish",
+              "Resource": {
+                "Ref": "Topic"
+              },
+              "Condition": {
+                "ArnEquals": {
+                  "aws:SourceArn": {
+                    "Fn::GetAtt": [
+                      "ExecutionFailures",
+                      "Arn"
+                    ]
+                  }
+                }
+              }
+            }
+          ]
+        }
+      }
+    }
+  },
+  "Outputs": {
+    "ApiUrl": {
+      "Value": {
+        "Fn::Sub": "https://${Api}.execute-api.${AWS::Region}.amazonaws.com/prod"
+      }
+    },
+    "PortalUrl": {
+      "Value": {
+        "Fn::Sub": "https://${Distribution.DomainName}"
+      }
+    },
+    "WebBucketName": {
+      "Value": {
+        "Ref": "WebBucket"
+      }
+    },
+    "DocumentBucketName": {
+      "Value": {
+        "Ref": "Documents"
+      }
+    },
+    "UserPoolId": {
+      "Value": {
+        "Ref": "Pool"
+      }
+    },
+    "ClientId": {
+      "Value": {
+        "Ref": "Client"
+      }
+    },
+    "Region": {
+      "Value": {
+        "Ref": "AWS::Region"
+      }
+    },
+    "WorkflowArn": {
+      "Value": {
+        "Ref": "Workflow"
+      }
+    },
+    "DistributionId": {
+      "Value": {
+        "Ref": "Distribution"
+      }
+    }
+  }
+}

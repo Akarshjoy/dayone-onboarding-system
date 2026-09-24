@@ -1,0 +1,261 @@
+{
+  "Comment": "Human completion callbacks; 24-hour task timeout loops send reminders.",
+  "StartAt": "Prepare",
+  "TimeoutSeconds": 7776000,
+  "States": {
+    "Prepare": {
+      "Type": "Pass",
+      "Parameters": {
+        "employee_id.$": "$.employee_id",
+        "reminder_seconds.$": {
+          "Fn::Sub": "States.StringToJson('${ReminderSeconds}')"
+        }
+      },
+      "Next": "documents"
+    },
+    "documents": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::lambda:invoke.waitForTaskToken",
+      "Parameters": {
+        "FunctionName": {
+          "Fn::GetAtt": [
+            "StageFunction",
+            "Arn"
+          ]
+        },
+        "Payload": {
+          "employee_id.$": "$.employee_id",
+          "stage": "documents",
+          "token.$": "$$.Task.Token"
+        }
+      },
+      "TimeoutSecondsPath": "$.reminder_seconds",
+      "ResultPath": null,
+      "Retry": [
+        {
+          "ErrorEquals": [
+            "Lambda.ServiceException",
+            "Lambda.AWSLambdaException",
+            "Lambda.SdkClientException",
+            "Lambda.TooManyRequestsException"
+          ],
+          "IntervalSeconds": 2,
+          "MaxAttempts": 3,
+          "BackoffRate": 2
+        }
+      ],
+      "Catch": [
+        {
+          "ErrorEquals": [
+            "States.Timeout"
+          ],
+          "ResultPath": null,
+          "Next": "documents"
+        },
+        {
+          "ErrorEquals": [
+            "States.ALL"
+          ],
+          "ResultPath": "$.error",
+          "Next": "NotifyFailure"
+        }
+      ],
+      "Next": "it"
+    },
+    "it": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::lambda:invoke.waitForTaskToken",
+      "Parameters": {
+        "FunctionName": {
+          "Fn::GetAtt": [
+            "StageFunction",
+            "Arn"
+          ]
+        },
+        "Payload": {
+          "employee_id.$": "$.employee_id",
+          "stage": "it",
+          "token.$": "$$.Task.Token"
+        }
+      },
+      "TimeoutSecondsPath": "$.reminder_seconds",
+      "ResultPath": null,
+      "Retry": [
+        {
+          "ErrorEquals": [
+            "Lambda.ServiceException",
+            "Lambda.AWSLambdaException",
+            "Lambda.SdkClientException",
+            "Lambda.TooManyRequestsException"
+          ],
+          "IntervalSeconds": 2,
+          "MaxAttempts": 3,
+          "BackoffRate": 2
+        }
+      ],
+      "Catch": [
+        {
+          "ErrorEquals": [
+            "States.Timeout"
+          ],
+          "ResultPath": null,
+          "Next": "it"
+        },
+        {
+          "ErrorEquals": [
+            "States.ALL"
+          ],
+          "ResultPath": "$.error",
+          "Next": "NotifyFailure"
+        }
+      ],
+      "Next": "policy"
+    },
+    "policy": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::lambda:invoke.waitForTaskToken",
+      "Parameters": {
+        "FunctionName": {
+          "Fn::GetAtt": [
+            "StageFunction",
+            "Arn"
+          ]
+        },
+        "Payload": {
+          "employee_id.$": "$.employee_id",
+          "stage": "policy",
+          "token.$": "$$.Task.Token"
+        }
+      },
+      "TimeoutSecondsPath": "$.reminder_seconds",
+      "ResultPath": null,
+      "Retry": [
+        {
+          "ErrorEquals": [
+            "Lambda.ServiceException",
+            "Lambda.AWSLambdaException",
+            "Lambda.SdkClientException",
+            "Lambda.TooManyRequestsException"
+          ],
+          "IntervalSeconds": 2,
+          "MaxAttempts": 3,
+          "BackoffRate": 2
+        }
+      ],
+      "Catch": [
+        {
+          "ErrorEquals": [
+            "States.Timeout"
+          ],
+          "ResultPath": null,
+          "Next": "policy"
+        },
+        {
+          "ErrorEquals": [
+            "States.ALL"
+          ],
+          "ResultPath": "$.error",
+          "Next": "NotifyFailure"
+        }
+      ],
+      "Next": "manager"
+    },
+    "manager": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::lambda:invoke.waitForTaskToken",
+      "Parameters": {
+        "FunctionName": {
+          "Fn::GetAtt": [
+            "StageFunction",
+            "Arn"
+          ]
+        },
+        "Payload": {
+          "employee_id.$": "$.employee_id",
+          "stage": "manager",
+          "token.$": "$$.Task.Token"
+        }
+      },
+      "TimeoutSecondsPath": "$.reminder_seconds",
+      "ResultPath": null,
+      "Retry": [
+        {
+          "ErrorEquals": [
+            "Lambda.ServiceException",
+            "Lambda.AWSLambdaException",
+            "Lambda.SdkClientException",
+            "Lambda.TooManyRequestsException"
+          ],
+          "IntervalSeconds": 2,
+          "MaxAttempts": 3,
+          "BackoffRate": 2
+        }
+      ],
+      "Catch": [
+        {
+          "ErrorEquals": [
+            "States.Timeout"
+          ],
+          "ResultPath": null,
+          "Next": "manager"
+        },
+        {
+          "ErrorEquals": [
+            "States.ALL"
+          ],
+          "ResultPath": "$.error",
+          "Next": "NotifyFailure"
+        }
+      ],
+      "Next": "Ready"
+    },
+    "Ready": {
+      "Type": "Task",
+      "Resource": {
+        "Fn::GetAtt": [
+          "ReadyFunction",
+          "Arn"
+        ]
+      },
+      "Retry": [
+        {
+          "ErrorEquals": [
+            "Lambda.ServiceException",
+            "Lambda.AWSLambdaException",
+            "Lambda.SdkClientException",
+            "Lambda.TooManyRequestsException"
+          ],
+          "IntervalSeconds": 2,
+          "MaxAttempts": 3,
+          "BackoffRate": 2
+        }
+      ],
+      "Catch": [
+        {
+          "ErrorEquals": [
+            "States.ALL"
+          ],
+          "ResultPath": "$.error",
+          "Next": "NotifyFailure"
+        }
+      ],
+      "End": true
+    },
+    "NotifyFailure": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::sns:publish",
+      "Parameters": {
+        "TopicArn": {
+          "Ref": "Topic"
+        },
+        "Subject": "Onboarding workflow needs attention",
+        "Message.$": "$.employee_id"
+      },
+      "Next": "Failed"
+    },
+    "Failed": {
+      "Type": "Fail",
+      "Error": "OnboardingTaskFailed"
+    }
+  }
+}
